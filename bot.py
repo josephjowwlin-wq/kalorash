@@ -91,7 +91,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             калории = int(слова[1])
         except:
-            await update.message.reply_text("❌ Не понял число. Пример: завтрак 300")
+            await update.message.reply_text("❌ Не понял число. Пример: завтрак (твои данные)")
             return
 
         if "дневник" not in context.user_data:
@@ -136,7 +136,7 @@ async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     дневник = context.user_data.get("дневник", {})
 
     if not дневник:
-        await update.message.reply_text("📭 Дневник пуст. Напиши что-нибудь, например: завтрак 300")
+        await update.message.reply_text("📭 Дневник пуст. Напиши что-нибудь, например: завтрак (твои данные)")
         return
 
     общая = sum(sum(v) for v in дневник.values())
