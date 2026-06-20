@@ -1,237 +1,101 @@
 import os
-from telegram import *
-from telegram.ext import *
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.environ.get("TOKEN")
 
-# Список категорий, которые понимает бот
 КАТЕГОРИИ = ["завтрак", "обед", "ужин", "перекус"]
 
-# ---------------------------------------------------
-# Команда /start
-# ---------------------------------------------------
-async def start(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    приветствие = """
-Привет! Я бот для подсчёта калорий.
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привет! Я бот для подсчёта калорий.\n\nИспользуй:\nзавтрак 300\n/setnorm 2500\n/total")
 
-📝 Как меня использовать:
-  завтрак (твои данные)
-  обед (твои данные)
-  ужин (твои данные)
-  перекус (твои данные)
-
-⚙️ Настройки:
-  /setnorm — установить дневную норму калорий
-  /mynorm — посмотреть свою норму
-
-📊 Команды:
-  /total — посмотреть сумму за день
-  /reset — очистить дневник
-  /detail — показать все приёмы пищи
-"""
-    await письмо.message.reply_text(приветствие)
-
-
-# ---------------------------------------------------
-# /setnorm — установить норму
-# ---------------------------------------------------
-async def установить_норму(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    # Если число передано сразу (args не пуст)
-    if стол.args:
+async def setnorm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args:
         try:
-            норма = int(стол.args[0])
+            норма = int(context.args[0])
             if норма <= 0:
-                await письмо.message.reply_text("❌ Норма должна быть больше нуля.")
+                await update.message.reply_text("Норма должна быть больше нуля.")
                 return
-            стол.user_data["норма"] = норма
-            await письмо.message.reply_text(f"✅ Дневная норма установлена: {норма} ккал")
-            return
+            context.user_data["норма"] = норма
+            await update.message.reply_text(f"✅ Норма: {норма} ккал")
         except:
-            pass
-
-    # Если число не передано — просим ввести
-    стол.user_data["ожидание_нормы"] = True
-    await письмо.message.reply_text("📝 Введи число — твою дневную норму калорий:")
-
-
-# ---------------------------------------------------
-# /mynorm — посмотреть норму
-# ---------------------------------------------------
-async def моя_норма(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    норма = стол.user_data.get("норма", None)
-    if норма is None:
-        await письмо.message.reply_text("⚠️ Норма не установлена. Установи командой /setnorm")
+            await update.message.reply_text("Введи число.")
     else:
-        await письмо.message.reply_text(f"🎯 Твоя дневная норма: {норма} ккал")
+        context.user_data["ожидание_нормы"] = True
+        await update.message.reply_text("Введи дневную норму калорий:")
 
+async def mynorm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    норма = context.user_data.get("норма")
+    if норма:
+        await update.message.reply_text(f"Твоя норма: {норма} ккал")
+    else:
+        await update.message.reply_text("Норма не задана. /setnorm")
 
-# ---------------------------------------------------
-# Обработка сообщений с едой
-# ---------------------------------------------------
-async def обработать_сообщение(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    текст = письмо.message.text.lower().strip()
+async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    дневник = context.user_data.get("дневник", {})
+    if not дневник:
+        await update.message.reply_text("Дневник пуст.")
+        return
+    общая = sum(sum(v) for v in дневник.values())
+    await update.message.reply_text(f"Общий калораж: {общая} ккал")
+
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["дневник"] = {"завтрак": [], "обед": [], "ужин": [], "перекус": []}
+    await update.message.reply_text("Дневник очищен.")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    текст = update.message.text.lower().strip()
     слова = текст.split()
 
-    # Проверяем, ждём ли мы ввода нормы
-    if стол.user_data.get("ожидание_нормы"):
+    if context.user_data.get("ожидание_нормы"):
         try:
             норма = int(слова[0])
             if норма <= 0:
-                await письмо.message.reply_text("❌ Норма должна быть больше нуля. Попробуй ещё раз.")
+                await update.message.reply_text("Норма > 0.")
                 return
-            стол.user_data["норма"] = норма
-            стол.user_data["ожидание_нормы"] = False
-            await письмо.message.reply_text(f"✅ Дневная норма установлена: {норма} ккал")
-            return
+            context.user_data["норма"] = норма
+            context.user_data["ожидание_нормы"] = False
+            await update.message.reply_text(f"✅ Норма: {норма} ккал")
         except:
-            await письмо.message.reply_text("❌ Это не похоже на число. Введи число, например: 2500")
-            return
+            await update.message.reply_text("Это не число.")
+        return
 
-    # Первое слово — категория, второе — калории
     if len(слова) >= 2 and слова[0] in КАТЕГОРИИ:
         категория = слова[0]
-
         try:
             калории = int(слова[1])
         except:
-            await письмо.message.reply_text("❌ Не понял число. Пример: завтрак 300")
+            await update.message.reply_text("Не понял число.")
             return
-
-        if "дневник" not in стол.user_data:
-            стол.user_data["дневник"] = {
-                "завтрак": [],
-                "обед": [],
-                "ужин": [],
-                "перекус": []
-            }
-
-        стол.user_data["дневник"][категория].append(калории)
-
-        сумма_категории = sum(стол.user_data["дневник"][категория])
-        общая_сумма = sum(
-            sum(список) for список in стол.user_data["дневник"].values()
-        )
-
-        эмодзи = {"завтрак": "🌅", "обед": "🍲", "ужин": "🌙", "перекус": "🍎"}
-
-        ответ = (
-            f"{эмодзи[категория]} {категория.upper()}: +{калории} ккал\n"
-            f"📌 Всего за {категория}: {сумма_категории} ккал\n"
-            f"📊 Общий калораж за день: {общая_сумма} ккал"
-        )
-
-        норма = стол.user_data.get("норма", None)
-        if норма is not None:
-            разница = норма - общая_сумма
-            if разница > 0:
-                ответ += f"\n🟢 Осталось добрать до нормы: {разница} ккал"
-            elif разница < 0:
-                ответ += f"\n🔴 Превышение нормы на: {abs(разница)} ккал!"
-            else:
-                ответ += f"\n⚪ Ты точно в норме! {норма} ккал."
-
-        await письмо.message.reply_text(ответ)
-
+        
+        if "дневник" not in context.user_data:
+            context.user_data["дневник"] = {к: [] for к in КАТЕГОРИИ}
+        
+        context.user_data["дневник"][категория].append(калории)
+        сумма_кат = sum(context.user_data["дневник"][категория])
+        общая = sum(sum(v) for v in context.user_data["дневник"].values())
+        
+        ответ = f"{категория}: +{калории} ккал\nВсего за {категория}: {сумма_кат}\nОбщий итог: {общая}"
+        норма = context.user_data.get("норма")
+        if норма:
+            разница = норма - общая
+            if разница > 0: ответ += f"\n🟢 Осталось: {разница}"
+            elif разница < 0: ответ += f"\n🔴 Лишнее: {abs(разница)}"
+            else: ответ += "\n⚪ Норма!"
+        await update.message.reply_text(ответ)
     else:
-        await письмо.message.reply_text(
-            "❌ Не понял. Пиши так:\n"
-            "завтрак (твои данные)\nобед (твои данные)\nужин (твои данные)\nперекус (твои данные)"
-        )
+        await update.message.reply_text("Формат: завтрак 300")
 
-
-# ---------------------------------------------------
-# Команда /total — общая сумма
-# ---------------------------------------------------
-async def итого(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    дневник = стол.user_data.get("дневник", {})
-
-    if not дневник:
-        await письмо.message.reply_text("📭 Дневник пуст. Напиши что-нибудь, например: завтрак 300")
-        return
-
-    общая = sum(sum(список) for список in дневник.values())
-    ответ = f"📊 Общий калораж за день: {общая} ккал"
-
-    норма = стол.user_data.get("норма", None)
-    if норма is not None:
-        разница = норма - общая
-        if разница > 0:
-            ответ += f"\n🟢 Осталось добрать: {разница} ккал"
-        elif разница < 0:
-            ответ += f"\n🔴 Превышение на: {abs(разница)} ккал!"
-        else:
-            ответ += f"\n⚪ Точно в норме!"
-
-    await письмо.message.reply_text(ответ)
-
-
-# ---------------------------------------------------
-# Команда /detail — все приёмы пищи
-# ---------------------------------------------------
-async def подробно(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    дневник = стол.user_data.get("дневник", {})
-
-    if not дневник:
-        await письмо.message.reply_text("📭 Дневник пуст.")
-        return
-
-    эмодзи = {"завтрак": "🌅", "обед": "🍲", "ужин": "🌙", "перекус": "🍎"}
-
-    ответ = "📋 Твой дневник за сегодня:\n\n"
-    общая = 0
-
-    for категория, список_ккал in дневник.items():
-        if список_ккал:
-            сумма = sum(список_ккал)
-            общая += сумма
-            блюда = " + ".join(str(x) for x in список_ккал)
-            ответ += f"{эмодзи[категория]} {категория.upper()}: {блюда} = {сумма} ккал\n"
-
-    ответ += f"\n📊 Общий итог: {общая} ккал"
-
-    норма = стол.user_data.get("норма", None)
-    if норма is not None:
-        разница = норма - общая
-        if разница > 0:
-            ответ += f"\n🟢 Осталось добрать: {разница} ккал"
-        elif разница < 0:
-            ответ += f"\n🔴 Превышение на: {abs(разница)} ккал!"
-        else:
-            ответ += f"\n⚪ Точно в норме!"
-
-    await письмо.message.reply_text(ответ)
-
-
-# ---------------------------------------------------
-# Команда /reset — очистить дневник
-# ---------------------------------------------------
-async def сброс(письмо: Update, стол: ContextTypes.DEFAULT_TYPE):
-    стол.user_data["дневник"] = {
-        "завтрак": [],
-        "обед": [],
-        "ужин": [],
-        "перекус": [] 
-    }
-    await письмо.message.reply_text("🔄 Дневник очищен. Начинаем новый день!")
-
-
-# ---------------------------------------------------
-# Запуск бота
-# ---------------------------------------------------
 def main():
-    приложение = Application.builder().token(TOKEN).build()
-
-    приложение.add_handler(CommandHandler("start", start))
-    приложение.add_handler(CommandHandler("setnorm", установить_норму))
-    приложение.add_handler(CommandHandler("mynorm", моя_норма))
-    приложение.add_handler(CommandHandler("total", итого))
-    приложение.add_handler(CommandHandler("detail", подробно))
-    приложение.add_handler(CommandHandler("reset", сброс))
-    приложение.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, обработать_сообщение))
-
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setnorm", setnorm))
+    app.add_handler(CommandHandler("mynorm", mynorm))
+    app.add_handler(CommandHandler("total", total))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("Бот запущен!")
-    приложение.run_polling()
-
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
