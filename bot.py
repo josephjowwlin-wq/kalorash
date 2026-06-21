@@ -1,9 +1,8 @@
-import os
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = os.environ.get("TOKEN")
+TOKEN = "8632298410:AAFBqKQG9p-jiqbNJYVWA2bTtSJB6oOqnzw"
 
 КАТЕГОРИИ = ["завтрак", "обед", "ужин", "перекус"]
 
